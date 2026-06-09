@@ -1,0 +1,12 @@
+{
+  "name": "harness-book",
+  "version": "1.0.0",
+  "description": "《Harness 理论与实战》在线书籍",
+  "scripts": {
+    "serve": "honkit serve",
+    "build": "honkit build"
+  },
+  "devDependencies": {
+    "honkit": "^6.2.1"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "title": "Harness 理论与实战",
+  "description": "从零构建简历生成 Agent，理解 AI 系统设计思维",
+  "author": "wuji",
+  "language": "zh-hans",
+  "gitbook": ">=3.0.0",
+  "structure": {
+    "readme": "README.md",
+    "summary": "SUMMARY.md"
+  }
+}
