@@ -17,8 +17,6 @@
 >
 > 如果你主要使用 Python，本书的概念和架构设计依然适用——Harness 是语言无关的。所有代码示例都可以用 Python/Go/Rust 等价实现。
 
----
-
 ## 开篇故事
 
 2025 年秋天，我接了一个"简单"的外包项目：做一个 AI 简历生成器。需求很明确——用户输入经历，AI 生成专业简历，导出 PDF。
@@ -55,8 +53,6 @@ console.log(data.content[0].text);
 我突然意识到：**"调 API"和"做产品"之间有一条巨大的鸿沟**。
 
 这条鸿沟，就是 resumate 这个项目要跨越的。这条鸿沟，就是本书要带你理解的 Harness。
-
----
 
 ## 1.1 为什么需要 Harness？
 
@@ -111,8 +107,6 @@ console.log(data.content[0].text);
 ```
 
 你正在学习的，就是这个领域最新的范式。
-
----
 
 ## 1.2 什么是 Harness？
 
@@ -198,8 +192,6 @@ resumate/
 | **编排 + Hooks** | AgentRunner Plan/Step 执行、SSE 事件生命周期、Turbo 构建编排 |
 
 在接下来的章节中，我们会逐一展开每个组件的实现细节。你会发现：**resumate 的 agent-harness 包本身就是一个微型 Harness 实现**——它只有几百行代码，但完整覆盖了 Harness 的全部核心概念。
-
----
 
 ## 1.3 动手实践：从零体验 resumate
 
@@ -312,8 +304,6 @@ data: {"resume":{...}} // 最终简历数据
 这就是 Agent = Model + Harness 在 resumate 中的完整体现：
 - **Model** = Anthropic Claude（通过 `AnthropicProvider`）
 - **Harness** = AgentRunner + ToolRegistry + Zustand Stores + SSE + React UI + localStorage
-
----
 
 ## 1.4 代码解析：30 行理解 Agent = Model + Harness
 
@@ -433,8 +423,6 @@ export class AgentRunner {
 
 这三个设计，将在第 2 章（执行循环）中深入讲解。
 
----
-
 ## 1.5 复盘与延伸
 
 ### 本章要点回顾
@@ -471,8 +459,6 @@ export class AgentRunner {
 2. **（★★☆）** 在 `SimpleAgent` 的基础上添加 `history: Message[]`，使其支持多轮对话。用户第二轮输入时，Agent 能"记得"第一轮说了什么。
 
 3. **（★★★）** 研究 resumate 源码中 `packages/agent-harness/src/runner.ts` 的完整代码。找出 `AgentRunner.execute()` 方法中的四种 Step 类型，理解它们各处理什么场景。
-
----
 
 ## 本章小结
 

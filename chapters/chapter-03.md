@@ -4,8 +4,6 @@
 > **难度：** ★★☆☆☆  
 > **预计阅读时间：** 40 分钟  
 
----
-
 ## 开篇故事
 
 resumate 刚发布时，我只支持 Anthropic Claude。用户在 GitHub 提了个 issue：
@@ -33,8 +31,6 @@ async function generateResume(userInput: string): Promise<Resume> {
 每加一个新模型，就要改 `generateResume` 的代码。如果有 10 个函数都在调 LLM，就要在 10 个地方写 if-else 判断模型类型。这就是**紧耦合的代价**。
 
 解决方案是引入一层抽象——**LLMProvider 接口**。
-
----
 
 ## 3.1 为什么需要 LLM 抽象？
 
@@ -91,8 +87,6 @@ AgentRunner → 依赖 → LLMProvider（接口）
 ```
 
 AgentRunner 只知道它有一个能"流式对话"和"生成结构化输出"的对象，完全不需要知道这个对象背后是 Claude 还是 DeepSeek 还是 Ollama。
-
----
 
 ## 3.2 什么是 LLMProvider 接口？
 
@@ -181,8 +175,6 @@ for await (const chunk of provider.streamChat({ messages })) {
 **决策 3：为什么 `thinking` 字段用 `{ type: "enabled" }` 而非 `boolean`？**
 
 为了未来扩展。`{ type: "disabled" }` 明确禁用；`{ type: "enabled" }` 启用；未来可能有 `{ type: "auto", budget: 2048 }` 这样的细粒度控制。
-
----
 
 ## 3.3 动手实践：实现多个 Provider
 
@@ -335,8 +327,6 @@ for await (const event of ollamaRunner.execute(plan)) { /* ... */ }
 
 这就是 LLM 抽象层的价值：**加一个新模型，只写一个 Provider 实现，不需要改任何业务代码**。
 
----
-
 ## 3.4 代码解析：四层架构
 
 resumate 的 LLM 层整体架构：
@@ -363,8 +353,6 @@ resumate 的 LLM 层整体架构：
 3. **实现细节内聚**：Anthropic 的 system prompt 独立参数 vs OpenAI 的 messages 内 system——差异被封装在适配层内部
 4. **Think Mode 统一化**：`{ type: "enabled" }` 统一了不同模型的"思考"功能
 
----
-
 ## 3.5 复盘与延伸
 
 ### 本章要点回顾
@@ -390,8 +378,6 @@ resumate 的 LLM 层整体架构：
 2. **（★★☆）** 在 `generateStructured` 中添加自动重试：如果 Zod parse 失败，把 parse error 反馈给 LLM 再试一次。
 
 3. **（★★★）** 实现一个 `MockProvider`：不调真实 API，返回预定义数据。用于 AgentRunner 的单元测试。
-
----
 
 ---
 

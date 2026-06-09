@@ -5,8 +5,6 @@
 > **预计阅读时间：** 50 分钟  
 > **本章代码量：** 从 ~30 行扩展到 ~110 行  
 
----
-
 ## 开篇故事
 
 第一章我们用 30 行代码写了一个最简 Agent。它有一个致命缺陷：**只能做一件事**。
@@ -26,8 +24,6 @@
 就像一个餐厅：客人点单 → 厨师做菜 → 服务员上菜 → 顾客反馈 → 调整。这不是"一次性调用"，而是**一个循环**。
 
 Agent 的核心就是这个循环。这一章，我们就来构建它。
-
----
 
 ## 2.1 为什么需要执行循环？
 
@@ -95,8 +91,6 @@ class MultiStepAgent {
 ```
 
 这就是 resumate 中 AgentRunner 的设计原型。
-
----
 
 ## 2.2 什么是执行循环？
 
@@ -214,8 +208,6 @@ plan:start (planId: "resume-generation")
 ```
 
 如果把整个执行看作一条生产线，每个事件就是生产线上的一盏指示灯——告诉你当前物料在哪、加工到哪一步、有没有异常。
-
----
 
 ## 2.3 动手实践：为最简 Agent 添加执行循环
 
@@ -397,8 +389,6 @@ class AgentRunner {
 | 中间结果 | 不可访问 | `stepResults` 结构化存储，后续步骤可用 |
 | 依赖管理 | 无 | `dependsOn` 声明式依赖 |
 
----
-
 ## 2.4 代码解析：AgentRunner 的三层循环
 
 现在让我们深入 resumate 的真正源码，理解 AgentRunner 的设计精要。
@@ -479,8 +469,6 @@ function resolveRuntimeValue<T>(
 }
 ```
 
----
-
 ## 2.5 复盘与延伸
 
 ### 本章要点回顾
@@ -531,8 +519,6 @@ LangChain 的 `AgentExecutor`、CrewAI 的 `Crew`、AutoGen 的 `ConversableAgen
 2. **（★★☆）** 研究 resumate 源码中 `packages/web/app/api/agent/run/route.ts`，理解 SSE 如何将 `AsyncGenerator<HarnessEvent>` 转成 HTTP 响应流。
 
 3. **（★★★）** 在 AgentRunner 中加入重试机制：如果 `structured` 步骤的 Zod parse 失败，自动重试一次（带着 parse error 信息重新调 LLM）。
-
----
 
 ## 本章小结
 

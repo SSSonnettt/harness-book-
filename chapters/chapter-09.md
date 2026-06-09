@@ -4,8 +4,6 @@
 > **难度：** ★★★★☆  
 > **预计阅读时间：** 50 分钟  
 
----
-
 ## 开篇故事
 
 resumate 的第 2 章执行循环是线性的：`classify → collect → generate → validate → present`。
@@ -24,8 +22,6 @@ generate → validate → (score < 70?) → enhance → validate → present
 
 这些横切检查就是 **Hooks**。它们不参与主线执行，而是挂在关键节点上的"守护者"。
 
----
-
 ## 9.1 为什么需要编排与 Hooks？
 
 线性执行只能处理最简单的情况。一旦需要：
@@ -36,8 +32,6 @@ generate → validate → (score < 70?) → enhance → validate → present
 线性代码就会变成意大利面条。
 
 编排解决"步骤如何组合"，Hooks 解决"横切关注点如何管理"。
-
----
 
 ## 9.2 编排：从线性到 DAG
 
@@ -226,8 +220,6 @@ class AgentRunner {
 }
 ```
 
----
-
 ## 9.3 代码解析
 
 ### 编排的演进路线
@@ -250,8 +242,6 @@ resumate 目前处于 v1→v2 之间。v3（循环自检）通过 `condition` + 
 | 影响 Plan 结果？ | 产出 `stepResults` | 只能 `block` 或 `continue` |
 | 典型用途 | 生成内容、验证数据 | 安全检查、日志记录、预算控制 |
 
----
-
 ## 9.4 复盘与延伸
 
 ### ⚠️ 常见误区
@@ -269,8 +259,6 @@ resumate 目前处于 v1→v2 之间。v3（循环自检）通过 `condition` + 
 2. **（★★☆）** 实现一个最大重试 Hook：限制 `generate → validate → enhance` 循环不超过 3 轮。
 
 3. **（★★★）** 设计一个多 Agent Plan：简历生成 Agent + JD 分析 Agent + 排版 Agent 通过协作完成最终简历。
-
----
 
 ---
 

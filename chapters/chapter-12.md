@@ -4,8 +4,6 @@
 > **难度：** ★★★☆☆  
 > **预计阅读时间：** 40 分钟  
 
----
-
 ## 开篇故事
 
 resumate 在 `localhost:5001` 跑得很好。但要让别人用，需要：
@@ -17,8 +15,6 @@ resumate 在 `localhost:5001` 跑得很好。但要让别人用，需要：
 这三件事对应了 Harness 在"生产环境"这一层的三个核心关注点：部署、构建、治理。
 
 而最妙的是——resumate 的 `AGENTS.md` 和 `CLAUDE.md` 本身就是 Harness 治理层的实例。你写的 System Prompt、定义的规则、配置的工具链，都是在构建 Harness。
-
----
 
 ## 12.1 Monorepo：多包工程的 Harness
 
@@ -57,8 +53,6 @@ Turborepo 的关键能力：
 
 这就是 Harness 文件系统组件在构建层面的体现。
 
----
-
 ## 12.2 Docker：一键部署
 
 ```dockerfile
@@ -95,8 +89,6 @@ services:
 ```
 
 `docker compose up -d` → 服务运行在 `http://localhost:3000`。
-
----
 
 ## 12.3 AGENTS.md：Agent 的"宪法"
 
@@ -141,8 +133,6 @@ Agent 将 localStorage key 从 "resumate-data" 改为 "resume-data"
 
 `AGENTS.md` 就是这个"工程化解决方案"的载体。它从空白开始，随着项目的演进不断增长，最终变成项目最可靠的"长时记忆"。
 
----
-
 ## 12.4 全书回顾：你构建的每一个约束，都在定义 Harness
 
 让我们从第 1 章出发，遍历 12 章的旅程：
@@ -183,8 +173,6 @@ Ch12: 如何走向生产？               → Docker + Monorepo + AGENTS.md
 
 而最重要的是：你现在知道**为什么**需要它们，**什么**时候添加它们，以及**如何**用最简代码实现它们。
 
----
-
 ## 12.5 复盘与延伸
 
 ### 下一步去哪里？
@@ -202,16 +190,12 @@ Ch12: 如何走向生产？               → Docker + Monorepo + AGENTS.md
 
 你会发现：场景不同，但 Harness 的架构骨架惊人地一致。因为好的工程模式是通用的——这就是本书想传达的核心信念。
 
----
-
 ## 本章小结
 
 - **Monorepo**：Turborepo 管理多包依赖和构建
 - **Docker**：多阶段构建 + 非 root 运行
 - **AGENTS.md**：Agent 的治理合约，项目的"长时记忆"
 - **元闭环**：你构建 resumate 的过程本身就是在构建 Harness
-
----
 
 ## 全书后记
 

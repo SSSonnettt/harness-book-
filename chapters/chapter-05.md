@@ -4,8 +4,6 @@
 > **难度：** ★★★☆☆  
 > **预计阅读时间：** 45 分钟  
 
----
-
 ## 开篇故事
 
 resumate 最早生成简历的方式是让 LLM 输出 Markdown：
@@ -28,8 +26,6 @@ LLM: # 张三
 
 解决方案：让 LLM 直接输出结构化 JSON，用 Zod Schema 保证类型安全。
 
----
-
 ## 5.1 为什么需要结构化输出？
 
 ### 自由文本的三个问题
@@ -46,8 +42,6 @@ LLM: # 张三
 自由文本方案：LLM → 文本 → 正则解析 → 字段提取（脆弱）
 结构化方案：LLM → JSON → Zod parse → 类型安全的对象（可靠）
 ```
-
----
 
 ## 5.2 什么是结构化输出？
 
@@ -121,8 +115,6 @@ ${JSON.stringify(jsonSchema, null, 2)}
 | 灵活性 | 完全自定义 Schema | 受限于模型 API 的功能 |
 
 resumate 选择 Schema 注入方案的原因是**通用性**——它在 Anthropic、OpenAI、DeepSeek、Ollama 上都能工作，不需要依赖特定模型的 function calling 功能。
-
----
 
 ## 5.3 动手实践：为 resumate 添加类型安全的模块生成
 
@@ -285,8 +277,6 @@ async function loadResume(raw: unknown): Promise<Resume> {
 | 嵌套过深 | LLM 容易漏掉深层字段 | 最多3层嵌套 |
 | Schema 描述太少 | LLM 不理解字段含义 | 用 `.describe()` 给每个字段加说明 |
 
----
-
 ## 5.4 代码解析：Schema 注入的完整链路
 
 ```
@@ -325,8 +315,6 @@ async function loadResume(raw: unknown): Promise<Resume> {
 
 三层保证：Prompt 约束（软）→ JSON.parse（语法）→ Zod parse（语义）。
 
----
-
 ## 5.5 复盘与延伸
 
 ### ⚠️ 常见误区
@@ -344,8 +332,6 @@ async function loadResume(raw: unknown): Promise<Resume> {
 2. **（★★☆）** 实现一个 `generateStructured` 的流式版本：先缓冲全部 JSON chunk，再 parse。
 
 3. **（★★★）** 研究 OpenAI 的 `response_format: { type: "json_schema" }` 和 Anthropic 的 tool_use。为 resumate 的 `generateStructured` 添加"优先用原生 JSON 模式，fallback 到 prompt 注入"的策略。
-
----
 
 ## 本章小结
 
