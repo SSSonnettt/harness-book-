@@ -59,7 +59,7 @@ resumate 的 AgentRunner 中，Step 的参数是 `RuntimeValue<T>`：
 type RuntimeValue<T> = T | ((runtime: StepRuntime) => T);
 ```
 
-这不是一个语法糖——它是上下文工程的核心机制。
+这不是语法糖——它是实现按需注入的机制。
 
 **静态值**适用于不变的信息：
 ```typescript

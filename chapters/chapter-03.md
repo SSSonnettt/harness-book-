@@ -325,7 +325,7 @@ for await (const event of deepseekRunner.execute(plan)) { /* ... */ }
 for await (const event of ollamaRunner.execute(plan)) { /* ... */ }
 ```
 
-这就是 LLM 抽象层的价值：**加一个新模型，只写一个 Provider 实现，不需要改任何业务代码**。
+LLM 抽象层的实际好处：**加一个新模型，只写一个 Provider，业务代码不动**。
 
 ## 3.4 代码解析：四层架构
 

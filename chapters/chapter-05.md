@@ -265,7 +265,7 @@ async function loadResume(raw: unknown): Promise<Resume> {
 }
 ```
 
-这展示了 Zod 在 Schema 演化中的价值：类型安全的解析 + 失败时可以 fallback 到旧 Schema + 自动迁移。
+Zod 在 Schema 演化中的实际作用：类型安全的解析 + 失败时可以 fallback 到旧 Schema + 自动迁移。
 
 ### 常见 Schema 设计错误
 

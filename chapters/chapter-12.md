@@ -14,7 +14,7 @@ resumate 在 `localhost:5001` 跑得很好。但要让别人用，需要：
 
 这三件事对应了 Harness 在"生产环境"这一层的三个核心关注点：部署、构建、治理。
 
-而最妙的是——resumate 的 `AGENTS.md` 和 `CLAUDE.md` 本身就是 Harness 治理层的实例。你写的 System Prompt、定义的规则、配置的工具链，都是在构建 Harness。
+resumate 的 `AGENTS.md` 和 `CLAUDE.md` 本身就是 Harness 治理层的实例。你写的 System Prompt、定义的规则、配置的工具链，都是在构建 Harness。
 
 ## 12.1 Monorepo：多包工程的 Harness
 
@@ -160,7 +160,7 @@ Ch12: 如何走向生产？               → Docker + Monorepo + AGENTS.md
 2. 如果是 Harness 的问题 → 是六大组件中的哪一个？
 3. 定位组件 → 找到对应的设计模式 → 用最简代码实现
 
-这就是"授之以渔"。
+掌握了这个思维路径，遇到新的 Agent 问题就不会无从下手。
 
 ### 再谈 Agent = Model + Harness
 
@@ -188,7 +188,7 @@ Ch12: 如何走向生产？               → Docker + Monorepo + AGENTS.md
 
 **（全书大作业）** 选择另一个场景（如：旅行规划 Agent、代码审查 Agent、学习助手 Agent），从头搭建它的 Harness。不参考 resumate 的代码，只使用书中学到的概念和模式。
 
-你会发现：场景不同，但 Harness 的架构骨架惊人地一致。因为好的工程模式是通用的——这就是本书想传达的核心信念。
+你会发现：场景不同，但 Harness 的架构骨架惊人地一致。好的工程模式是通用的。
 
 ## 本章小结
 

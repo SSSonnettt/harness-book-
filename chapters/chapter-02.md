@@ -21,9 +21,9 @@
 
 这是五个步骤，有顺序依赖，有错误处理，每步都可能需要重试。
 
-就像一个餐厅：客人点单 → 厨师做菜 → 服务员上菜 → 顾客反馈 → 调整。这不是"一次性调用"，而是**一个循环**。
+就像餐厅：点单 → 做菜 → 上菜 → 反馈 → 调整。这不是一次性调用，是一个循环。
 
-Agent 的核心就是这个循环。这一章，我们就来构建它。
+这一章来构建它。
 
 ## 2.1 为什么需要执行循环？
 
@@ -122,7 +122,7 @@ interface PlanStep {
 }
 ```
 
-这里有四个关键设计决策，值得逐一展开。
+这里有四个设计决策需要展开。
 
 #### 决策 1：四种 Step 类型
 
@@ -207,7 +207,7 @@ plan:start (planId: "resume-generation")
       └── plan:done  (resume: Resume)
 ```
 
-如果把整个执行看作一条生产线，每个事件就是生产线上的一盏指示灯——告诉你当前物料在哪、加工到哪一步、有没有异常。
+把执行过程看作一条生产线，事件就是指示灯——告诉你当前在哪步、有没有出错。
 
 ## 2.3 动手实践：为最简 Agent 添加执行循环
 
@@ -449,7 +449,7 @@ function resolveRuntimeValue<T>(
 }
 ```
 
-这 5 行代码是 AgentRunner 中最重要的设计之一。它让 Step 的参数可以：
+这 5 行代码解决了一个实际问题：让 Step 的参数可以：
 - 是静态值（适用于不变的 system prompt）
 - 是动态函数（适用于依赖前序步骤结果的 prompt）
 
@@ -501,11 +501,11 @@ function resolveRuntimeValue<T>(
 | 灵活性 | 受限于框架设计 | 完全可控 |
 | 适用场景 | 生产级复杂 Agent 系统 | 理解 Agent 原理 + 中小型项目 |
 
-本质区别：**框架是"实现"（Implementation），Harness 是"概念体系"（Conceptual Framework）。**
+区别在于：**框架是具体实现，Harness 是概念体系。**
 
-LangChain 的 `AgentExecutor`、CrewAI 的 `Crew`、AutoGen 的 `ConversableAgent`——它们都是 Plan/Step 模型在不同场景下的具体实现。理解 Harness 概念之后，学任何框架都只是"换个 API 调"而已。
+LangChain 的 `AgentExecutor`、CrewAI 的 `Crew`、AutoGen 的 `ConversableAgent` 都是 Plan/Step 模型的变体。理解 Harness 之后，学任何框架只是换个 API。
 
-本书选择从零构建 AgentRunner，不是因为"重复造轮子"，而是因为：**只有亲手造过，才能理解那些框架为什么那样设计。**
+本书从零构建 AgentRunner，因为：**亲手造过，才能理解那些框架为什么那样设计。**
 
 ### 进阶话题
 
