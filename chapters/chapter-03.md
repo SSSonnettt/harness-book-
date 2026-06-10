@@ -3,34 +3,12 @@
 > **核心概念：** LLMProvider 接口，依赖反转，模型无关性  
 > **难度：** ★★☆☆☆  
 > **预计阅读时间：** 40 分钟  
+> **学习目标：** 读完本章后，你将能够：
+> 1. 识别代码中模型耦合的三个信号
+> 2. 用依赖反转原则设计 LLMProvider 接口
+> 3. 实现适配不同模型 API 的 Provider  
 
-## 开篇故事
-
-resumate 刚发布时，我只支持 Anthropic Claude。用户在 GitHub 提了个 issue：
-
-> "能支持 DeepSeek 吗？我在国内用 Claude 不太方便。"
-
-我想了想，好像不难——把 Anthropic SDK 换成 OpenAI 兼容的 SDK 就行了？等等，如果又一个用户要用 Ollama 本地模型呢？
-
-如果我把业务逻辑直接绑在某个模型上：
-
-```typescript
-// 坏做法：业务逻辑和模型强耦合
-async function generateResume(userInput: string): Promise<Resume> {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    messages: [{ role: "user", content: userInput }],
-    // ... Anthropic 特有的参数
-  });
-  // 用 Anthropic 特有格式解析
-  return parseAnthropicResponse(response);
-}
-```
-
-每加一个新模型，就要改 `generateResume` 的代码。如果有 10 个函数都在调 LLM，就要在 10 个地方写 if-else 判断模型类型。这就是**紧耦合的代价**。
-
-解决方案是引入一层抽象——**LLMProvider 接口**。
+---
 
 ## 3.1 为什么需要 LLM 抽象？
 
@@ -88,6 +66,8 @@ AgentRunner → 依赖 → LLMProvider（接口）
 
 AgentRunner 只知道它有一个能"流式对话"和"生成结构化输出"的对象，完全不需要知道这个对象背后是 Claude 还是 DeepSeek 还是 Ollama。
 
+---
+
 ## 3.2 什么是 LLMProvider 接口？
 
 ### 接口定义
@@ -127,14 +107,14 @@ interface StreamChunk {
 interface ChatParams {
   messages: ChatMessage[];
   temperature?: number;
-  thinking?: { type: "enabled" | "disabled" };  // 思考模式开关
+  thinking?: { type: "enabled" | "disabled"; budget_tokens?: number };  // 思考模式开关
 }
 
 interface StructuredParams {
   messages: ChatMessage[];
   schema: z.ZodType<unknown>;  // Zod Schema → JSON Schema → 注入 prompt
   temperature?: number;
-  thinking?: { type: "enabled" | "disabled" };
+  thinking?: { type: "enabled" | "disabled"; budget_tokens?: number };
 }
 
 type StreamingCallback = (chunk: StreamChunk) => void;
@@ -151,14 +131,15 @@ type StreamingCallback = (chunk: StreamChunk) => void;
 这是一个有趣的权衡。resumate 的选择是回调模式：
 
 ```typescript
-// 回调模式：Provider 内部处理流式细节
+// 回调模式：Provider 内部处理流式细节，调用方收集结果
 let fullText = "";
 await provider.streamChat({ messages }, (chunk) => {
   if (chunk.type === "text") {
     fullText += chunk.content;
-    yield { type: "step:chunk", stepId: step.id, text: chunk.content };
   }
 });
+// 回调结束后，外层 generator 统一产出事件
+yield { type: "step:chunk", stepId: step.id, text: fullText };
 ```
 
 vs AsyncGenerator 模式：
@@ -172,126 +153,77 @@ for await (const chunk of provider.streamChat({ messages })) {
 
 回调模式的优势是：Provider 实现可以在回调内做后处理（如过滤空 chunk、合并相邻 reasoning），调用方只是被动接收处理后的数据。但这两种模式各有优劣，你可以根据自己的偏好调整。
 
-**决策 3：为什么 `thinking` 字段用 `{ type: "enabled" }` 而非 `boolean`？**
+**决策 3：为什么 `thinking` 字段用 `{ type: "enabled", budget_tokens?: number }` 而非 `boolean`？**
 
-为了未来扩展。`{ type: "disabled" }` 明确禁用；`{ type: "enabled" }` 启用；未来可能有 `{ type: "auto", budget: 2048 }` 这样的细粒度控制。
+为了兼顾简洁和扩展。`{ type: "disabled" }` 明确禁用；`{ type: "enabled" }` 启用并使用模型默认预算；`budget_tokens` 可选地指定思考 token 上限（Anthropic API 要求此字段）。未来可能有 `{ type: "auto", budget_tokens: 2048 }` 这样的细粒度控制。
+
+---
 
 ## 3.3 动手实践：实现多个 Provider
 
 ### AnthropicProvider
 
-resumate 的 Anthropic 实现（`packages/agent-harness/src/llm/anthropic.ts`）：
+resumate 的 Anthropic 实现（`packages/agent-harness/src/llm/anthropic.ts`），核心逻辑：
 
 ```typescript
-import Anthropic from "@anthropic-ai/sdk";
-import type { LLMProvider, ChatParams, StructuredParams, StreamingCallback } from "./types";
-
 export function createAnthropicProvider(apiKey: string): LLMProvider {
   const client = new Anthropic({ apiKey });
 
   return {
-    async streamChat(params: ChatParams, onChunk: StreamingCallback): Promise<string> {
+    async streamChat(params, onChunk) {
       const stream = client.messages.stream({
         model: "claude-sonnet-4-6",
         max_tokens: 4096,
-        system: extractSystem(params.messages),  // 取出 system 消息
+        system: extractSystem(params.messages),   // 取出 system 消息（Anthropic 特有）
         messages: extractNonSystem(params.messages),
       });
-
-      let fullText = "";
+      // 遍历 SSE 事件流，逐 chunk 回调
       for await (const event of stream) {
-        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-          fullText += event.delta.text;
-          onChunk({ type: "text", content: event.delta.text });
-        }
+        // 将 Anthropic 的 content_block_delta 转为统一的 StreamChunk
+        onChunk(toStreamChunk(event));
       }
-      return fullText;
     },
 
-    async generateStructured<T>(params: StructuredParams): Promise<T> {
-      // 将 Zod Schema 注入 system prompt
-      const schemaDescription = JSON.stringify(
-        zodToJsonSchema(params.schema), null, 2
-      );
-      const systemMsg = params.messages.find(m => m.role === "system");
-      const schemaPrompt = `${systemMsg?.content ?? ""}\n\n
-你必须严格按照以下 JSON Schema 输出（只输出 JSON，不要其他内容）：\n${schemaDescription}`;
-
-      const response = await client.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 4096,
-        system: schemaPrompt,
-        messages: extractNonSystem(params.messages),
-      });
-
+    async generateStructured(params) {
+      // 将 Zod Schema → JSON Schema 文本 → 注入 system prompt
+      const systemWithSchema = injectSchemaToPrompt(params);
+      const response = await client.messages.create({ /* ... */ });
       // 解析 JSON → Zod 验证 → 类型安全返回
-      const text = response.content[0].type === "text"
-        ? response.content[0].text : "";
-      const json = JSON.parse(extractJSON(text));
-      return params.schema.parse(json) as T;
+      return params.schema.parse(extractJSON(response));
     },
   };
 }
 ```
 
+注意适配层做的两件事：**① 将统一的 `ChatMessage[]` 翻译成 Anthropic 的 `system` + `messages` 分离格式**；**② 将 Anthropic 的 SSE 事件格式转为统一的 `StreamChunk`**。这两步翻译就是适配层的全部职责。完整实现约 50 行，见 [resumate 源码](https://github.com/SSSonnettt/resumate)。
+
 ### OpenAICompatProvider — 支持 DeepSeek + Ollama
 
 ```typescript
 export function createOpenAICompatProvider(
-  apiKey: string,
-  baseURL: string = "https://api.deepseek.com",
-  model: string = "deepseek-chat",
+  apiKey: string, baseURL: string, model: string,
 ): LLMProvider {
   return {
     async streamChat(params, onChunk) {
       const response = await fetch(`${baseURL}/v1/chat/completions`, {
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({
           model,
-          messages: params.messages,  // 注意：不需要拆分 system
+          messages: params.messages,  // OpenAI 兼容格式：system 在 messages 内
           stream: true,
           ...(params.thinking?.type === "enabled" && {
-            // DeepSeek 特有的 thinking 参数
-            extra_body: { thinking: { type: "enabled" } }
+            thinking: { type: "enabled" }  // DeepSeek 的思考模式
           }),
         }),
       });
-
-      let fullText = "";
+      // 解析 SSE 流，将 delta.content → StreamChunk
       for await (const chunk of parseSSEStream(response)) {
-        const delta = chunk.choices?.[0]?.delta;
-        if (delta?.content) {
-          fullText += delta.content;
-          onChunk({ type: "text", content: delta.content });
-        }
-        // 处理 reasoning（DeepSeek 的思考过程）
-        if (delta?.reasoning_content) {
-          onChunk({ type: "reasoning", content: delta.reasoning_content });
-        }
+        onChunk(toStreamChunk(chunk));
       }
-      return fullText;
     },
 
-    async generateStructured<T>(params): Promise<T> {
-      // 类似 streamChat，但非流式 + JSON 解析
-      const schemaJSON = zodToJsonSchema(params.schema);
-      const response = await fetch(`${baseURL}/v1/chat/completions`, {
-        headers: { /* ... */ },
-        body: JSON.stringify({
-          model,
-          messages: [
-            ...params.messages,
-            { role: "system", content: `输出格式：\n${JSON.stringify(schemaJSON)}` }
-          ],
-          response_format: { type: "json_object" },  // OpenAI 兼容的 JSON 模式
-        }),
-      });
-      const data = await response.json();
-      const json = JSON.parse(data.choices[0].message.content);
-      return params.schema.parse(json) as T;
+    async generateStructured(params) {
+      // 类似 streamChat，但使用 response_format: { type: "json_object" }
+      // 解析 JSON → Zod 验证 → 返回
     },
   };
 }
@@ -325,7 +257,9 @@ for await (const event of deepseekRunner.execute(plan)) { /* ... */ }
 for await (const event of ollamaRunner.execute(plan)) { /* ... */ }
 ```
 
-LLM 抽象层的实际好处：**加一个新模型，只写一个 Provider，业务代码不动**。
+LLM 抽象层的价值在于：**加一个新模型，只写一个 Provider 实现，不需要改任何业务代码**。
+
+---
 
 ## 3.4 代码解析：四层架构
 
@@ -353,7 +287,30 @@ resumate 的 LLM 层整体架构：
 3. **实现细节内聚**：Anthropic 的 system prompt 独立参数 vs OpenAI 的 messages 内 system——差异被封装在适配层内部
 4. **Think Mode 统一化**：`{ type: "enabled" }` 统一了不同模型的"思考"功能
 
-## 3.5 复盘与延伸
+---
+
+## 3.5 适配器模式的通用方法论
+
+LLMProvider 的设计并不是 AI 领域独有的。它本质上是**适配器模式（Adapter Pattern）**在 AI 系统中的应用——同一思路可以用于任何需要对接多种实现的场景：
+
+| 场景 | 接口 | 适配对象 |
+|------|------|---------|
+| 数据库 | `Database` (query, insert, delete) | PostgreSQL / MySQL / SQLite |
+| 消息队列 | `MessageBroker` (publish, subscribe) | Redis / RabbitMQ / Kafka |
+| 搜索引擎 | `SearchEngine` (search, index) | Elasticsearch / Meilisearch / Algolia |
+| 文件存储 | `ObjectStore` (get, put, delete) | S3 / MinIO / 本地文件系统 |
+
+设计这类接口的通用原则：
+
+1. **从使用方出发，不从实现方出发**。先问"我的业务需要什么"，再问"实现能提供什么"。LLMProvider 只有两个方法，不是因为模型只有两个能力，而是因为 Agent 业务只需要两个。
+2. **差异封装在适配层内部**。Anthropic 的 system prompt 是顶级参数，OpenAI 的在 messages 里——这个差异不应该泄露到调用方。
+3. **接口最小化**。暴露的方法越少，换实现时需要关心的契约就越少。如果未来需要新功能，优先在 Provider 内部处理，而非扩展接口。
+
+掌握了这个模式，你在设计任何需要"可替换实现"的系统时都会受益——不只是 LLM，而是任何第三方依赖。
+
+---
+
+## 3.6 复盘与延伸
 
 ### 本章要点回顾
 
@@ -370,14 +327,6 @@ resumate 的 LLM 层整体架构：
 | "接口要设计成能覆盖所有模型的所有功能" | 不要。接口只暴露业务需要的功能。模型特有的高级功能（如 tool_use）由 Provider 内部自行处理 |
 | "多 Provider 就得处理所有差异" | 不需要。80% 的差异在于请求/响应的序列化格式。适配层就是做这件事的 |
 | "Zod Schema 注入 prompt 不够精确" | 对复杂度不高的 Schema，prompt 注入是足够的。如果你需要严格的 constrained decoding（如 JSON 语法级约束），那是模型层面的功能，不是 Provider 接口的职责 |
-
-### 练习
-
-1. **（★☆☆）** 为 resumate 添加一个新的 Provider 实现（如 Google Gemini）。不需要完整实现，写出类结构和方法签名即可。
-
-2. **（★★☆）** 在 `generateStructured` 中添加自动重试：如果 Zod parse 失败，把 parse error 反馈给 LLM 再试一次。
-
-3. **（★★★）** 实现一个 `MockProvider`：不调真实 API，返回预定义数据。用于 AgentRunner 的单元测试。
 
 ---
 
@@ -397,3 +346,9 @@ resumate 的 LLM 层整体架构：
 - **怎么做**：AnthropicProvider + OpenAICompatProvider 的实现
 
 下一章，我们进入 Agent 的"手脚"——**工具系统**，理解 Agent 如何执行确定性操作。
+
+### 自检问题
+
+1. LLMProvider 接口为什么只需要 `chat` 和 `generateStructured` 两个方法？为什么不加 `streamChat`？
+2. 依赖反转原则（DIP）在 LLMProvider 设计中是如何体现的？
+3. 如果要添加一个新的模型提供商（如 DeepSeek），你需要实现什么？业务代码需要改动吗？

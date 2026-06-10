@@ -3,6 +3,11 @@
 > **核心概念：** Agent = Model + Harness  
 > **难度：** ★☆☆☆☆  
 > **预计阅读时间：** 45 分钟  
+> **学习目标：** 读完本章后，你将能够：
+> 1. 解释 Agent 与裸 API 调用的区别
+> 2. 列出裸模型的四大硬伤
+> 3. 描述 Harness 的六大组件和三层架构
+> 4. 阅读 resumate 的项目结构并定位各模块
 
 ---
 
@@ -15,44 +20,64 @@
 >
 > 读者需要：TypeScript/React 基础（1-2年经验）、Git 基础、命令行基础。不需要：Agent 框架经验、机器学习知识。
 >
-> 如果你主要使用 Python，本书的概念和架构设计依然适用——Harness 是语言无关的。所有代码示例都可以用 Python/Go/Rust 等价实现。
+> 如果你主要使用 Python，本书的概念和架构设计依然适用——Harness 是语言无关的。所有代码示例都可以用 Python/Go/Rust 等价实现。核心映射：`LLMProvider` 接口 → Python Protocol 或 ABC，`Zod Schema` → Pydantic，`AsyncGenerator` → `async for` + `yield`，`Zustand` → 任意状态管理方案。如需 Python 等价实现的对照示例，请关注本书的补充材料。
 
-## 开篇故事
+---
 
-2025 年秋天，我接了一个"简单"的外包项目：做一个 AI 简历生成器。需求很明确——用户输入经历，AI 生成专业简历，导出 PDF。
+> 🎯 **本书的边界**  
+> 本书明确聚焦于 **Harness Engineering 的六大核心组件**（执行循环、LLM 抽象层、工具系统、上下文工程、编排+Hooks、安全与评估）。这些是构建任何 Agent 系统都必然涉及的基础设施。  
+>   
+> **本书覆盖的内容：**  
+> - Agent 为什么需要 Harness，Harness 的核心组件是什么  
+> - 如何从零构建一个 Agent 的运行时环境（以 resumate 为案例）  
+> - Harness 各组件的设计决策和设计原则  
+> - 从开发到部署的完整工程实践  
+>   
+> **本书不覆盖的内容：**  
+> - LLM 模型的原理、训练、微调（Transformer 架构、RLHF 等）  
+> - 多 Agent 协作框架的深入使用（LangGraph、CrewAI——这些是框架实现，不是概念基础）  
+> - MCP Server 开发、A2A 协议的深入细节（在相关章节提及，在续作中展开）  
+> - 生产级 Agent 监控平台（可观测性在第 11 章涉及基础，完整方案超出本书范围）  
+>   
+> **为什么这样设计边界？** 模型的 API 和框架会快速迭代，但 Harness 的设计原则是稳定的。本书选择聚焦于"不变的东西"，让你在今天和五年后都能从中受益。
 
-"太简单了，"我想，"不就是调个 Anthropic API 嘛。"
+---
 
-30 分钟后，我写出了第一版：
+> 📖 **四种阅读路径**  
+> 本书按线性顺序编写，但你不必从头读到尾。根据你的背景和目标，选择最适合的路径：
+> 
+> | 路径 | 适合人群 | 阅读顺序 |
+> |------|---------|---------|
+> | 🟢 **新手路径** | 刚接触 Agent 开发 | 顺序阅读 Ch1→Ch12，每章的代码都动手运行 |
+> | 🔵 **概念优先** | 有经验的开发者，想快速理解 Harness 体系 | Ch1（全景）→ Ch2（执行循环）→ Ch7（上下文工程）→ Ch12（治理），再按需阅读中间章节 |
+> | 🟠 **实战优先** | 想直接动手构建 | Ch1（30行最简Agent）→ Ch2（AgentRunner）→ Ch4（工具）→ Ch5（结构化输出）→ Ch12（部署），其他章节按需查阅 |
+> | 🟣 **查漏补缺** | 已在使用 Agent 框架，想理解底层原理 | 直接跳到感兴趣的章节（每章独立可读），用 Ch1 的组件全景图作为导航 |
+>
+> 无论选择哪条路径，建议至少完整阅读 Ch1（建立心智模型）和 Ch12（理解全书闭环）。
 
-```typescript
-const response = await fetch("https://api.anthropic.com/v1/messages", {
-  headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-  body: JSON.stringify({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    messages: [{ role: "user", content: "帮我写一份软件工程师的简历" }]
-  })
-});
-const data = await response.json();
-console.log(data.content[0].text);
-```
+---
 
-确实生成了简历。看起来也不错。我得意地发给朋友测试。
+> 🧭 **概念依赖关系图**  
+> 下图展示了 12 章之间的核心依赖关系。实线箭头表示"必须先理解 A 才能理解 B"，虚线箭头表示"A 的内容在 B 中会被引用"：
+>
+> ```
+> Ch1: Agent = Model + Harness (全景)
+>  ├── Ch2: 执行循环 (Plan/Step)
+>  │    ├── Ch3: LLM 抽象层 (LLMProvider)
+>  │    ├── Ch4: 工具系统 (ToolRegistry)
+>  │    │    └── Ch5: 结构化输出 (Zod Schema)  ← 工具输出的类型约束
+>  │    └── Ch6: 流式响应 (SSE)  ← 执行循环的事件传输
+>  ├── Ch7: 上下文工程 (RuntimeValue/Context Rot)
+>  │    └── Ch8: 提示词工程 (三层 Prompt)  ← 上下文注入的最终形态
+>  ├── Ch9: 编排与 Hooks (条件分支/横切关注点)  ← 执行循环的进阶
+>  ├── Ch10: 安全与沙箱  ← 所有组件都需要安全护栏
+>  ├── Ch11: 评估与可观测性  ← 所有输出的质量度量
+>  └── Ch12: 部署与治理 (AGENTS.md)  ← 从开发回到控制层
+> ```
+>
+> 如果你发现某章的内容难以理解，沿着实线箭头回溯到它的前置章节。
 
-5 分钟后他回消息了：**"我想把工作经历改成 STAR 格式，怎么改？"**
-
-我愣住了。这需要重新调一次 API，但上下文里没有之前的简历——因为每次调用都是全新的、无状态的。
-
-然后是第二个问题：**"我想导出成 PDF。"**
-
-第三个：**"能不能针对这个 JD 优化一下？"**
-
-第四个：**"我刚才生成的简历呢？刷新页面不见了。"**
-
-我突然意识到：**"调 API"和"做产品"之间有一条巨大的鸿沟**。
-
-resumate 这个项目试图跨越这条鸿沟，而 Harness 就是桥本身。
+---
 
 ## 1.1 为什么需要 Harness？
 
@@ -83,20 +108,22 @@ resumate 这个项目试图跨越这条鸿沟，而 Harness 就是桥本身。
 3. **实时知识** → 读取用户粘贴的 JD 内容（文本解析 + 关键词提取）
 4. **工作环境** → 管理多份简历、支持撤销重做（Immer Patch 状态管理）
 
-所有 AI 产品都面临这些问题。聊天机器人需要记忆对话，代码助手需要执行编译，数据分析助手需要读写文件。
+这不是简历生成器特有的问题——**任何 AI 产品都面临同样的挑战**。聊天机器人需要记忆对话历史，代码助手需要执行编译命令，数据分析助手需要读写文件。所有这些问题，都指向同一个解决方案。
 
 ### 一个公式
 
-2026 年，AI 工程领域形成了一个共识，五个字：
+近年来，AI 工程实践中逐渐形成了一个共识（参见 LangChain 博客 *"The Anatomy of an Agent Harness"*、Anthropic 的 Agent 架构指南等）：
 
 > **Agent = Model + Harness**
 
-- **Model（模型）** 是"大脑"，负责理解和推理，但不具备行动能力。
-- **Harness（驾驭层/挽具）** 是"操作系统"，包裹在模型外面，提供记忆、工具执行、安全护栏、上下文管理、编排调度。
+- **Model（模型）** 是"大脑"——负责理解和推理。它是智能的来源，但不具备行动能力。
+- **Harness（驾驭层/挽具）** 是"操作系统"——包裹在模型外面，提供记忆、工具执行、安全护栏、上下文管理、编排调度。
+
+正如 CPU 需要操作系统才能发挥作用，裸模型需要 Harness 才能变成可用的智能体。
 
 > ⚠️ **术语说明**："Harness"一词借自马具中的"挽具"——马本身有力量，但需要挽具来引导方向、控制速度、承载负载。AI 模型也是如此：模型提供智能，Harness 提供工程控制。
 
-从 Prompt Engineering 到 Context Engineering 再到 Harness Engineering，AI 工程的演进史可以概括为：
+从 Prompt Engineering 到 Context Engineering 再到 Harness Engineering，AI 工程的演进史可以概括为（参见 Andrej Karpathy 关于 Context Engineering 的讨论、Swyx 的 *Context Engineering* 文章等）：
 
 ```
 2022-2024: Prompt Engineering     → 优化单次对话的质量
@@ -106,22 +133,35 @@ resumate 这个项目试图跨越这条鸿沟，而 Harness 就是桥本身。
 
 你正在学的，就是这套东西。
 
+---
+
 ## 1.2 什么是 Harness？
 
 ### 六大核心组件
 
 如果把 Harness 拆开看，它由六个核心组件构成。用一个表格来直观理解：
 
-| 组件 | 一句话概括 | 解决的问题 |
-|------|-----------|-----------|
-| **文件系统** | Agent 的"工作台" | 中间结果存哪？代码写在哪？ |
-| **Bash + 沙箱** | Agent 的"手脚" | 怎么运行代码？怎么编译 PDF？ |
-| **记忆系统** | Agent 的"长期记忆" | 刷新页面后数据还在吗？ |
-| **搜索 + MCP** | Agent 的"眼睛和耳朵" | 怎么读取外部数据？怎么连接 API？ |
-| **上下文工程** | Agent 的"信息过滤器" | 对话长了怎么办？Token 超了怎么办？ |
-| **编排 + Hooks** | Agent 的"指挥系统" | 多个步骤怎么协调？质量怎么保证？ |
+| 组件 | 一句话概括 | 解决的问题 | 本书覆盖 |
+|------|-----------|-----------|---------|
+| **执行循环** | Agent 的"大脑调度" | 多步骤任务如何分解和执行？ | Ch2 专章深入 |
+| **LLM 抽象层** | Agent 的"语言翻译" | 如何支持多种模型？ | Ch3 专章深入 |
+| **工具系统** | Agent 的"手脚" | 怎么执行确定性操作？ | Ch4 专章深入 |
+| **上下文工程** | Agent 的"信息过滤器" | 对话长了怎么办？Token 超了怎么办？ | Ch7 专章深入 |
+| **编排 + Hooks** | Agent 的"指挥系统" | 多个步骤怎么协调？质量怎么保证？ | Ch9 专章深入 |
+| **安全与评估** | Agent 的"缰绳和仪表盘" | 怎么保护用户？怎么度量质量？ | Ch10-11 专章深入 |
 
-这六个组件相互依赖，构成运行时环境。第 3-11 章会逐一讲解。现在先通过 resumate 看个全貌。
+此外，Harness 概念体系还包含一些**扩展组件**——它们在实际项目中同样重要，但要么属于更专门的领域，要么依赖外部协议标准：
+
+| 扩展组件 | 一句话概括 | 在本书中的位置 | 深入展开 |
+|---------|-----------|--------------|---------|
+| **文件系统** | Agent 的工作目录和代码组织 | Ch12 Monorepo 多包管理 | 续作 |
+| **Bash + 沙箱** | 安全执行不可信代码 | Ch10 Docker 沙箱安全 | 续作 |
+| **记忆系统** | 跨会话的长期信息存储 | Ch7 localStorage 持久化 + 对话摘要 | 续作 |
+| **搜索 + MCP** | 连接外部工具和数据源 | Ch4 ToolRegistry 设计原则可类比 | 续作 |
+
+> 📌 **区分原则**：核心组件是"没有它 Agent 就跑不起来"的基础设施（执行循环、LLM 抽象、工具）。扩展组件是"让 Agent 更强但可以后加"的能力（沙箱、MCP）。本书专注于核心组件，让读者掌握不可变的设计原则；扩展组件在相关章节中涉及基础概念，在续作中深入展开。
+
+这六个核心组件不是孤立的——它们相互依赖，构成一个完整的运行时环境。本书的第 2-11 章会逐一深入讲解每个组件。但现在，让我们先通过 resumate 看到它们的全貌。
 
 ### 三层架构
 
@@ -178,18 +218,20 @@ resumate/
 └── turbo.json               # 构建编排
 ```
 
-来看看 resumate 中 Harness 六大组件的对应关系：
+来看看 resumate 中 Harness 核心组件的对应关系：
 
-| Harness 组件 | resumate 中的实现 |
-|-------------|-----------------|
-| **文件系统** | monorepo 工作空间、模板 JSON 文件、localStorage 持久化 |
-| **Bash + 沙箱** | `pnpm dev/build` 开发命令、Docker 容器化部署 |
-| **记忆系统** | Zustand + Immer 状态管理（undoStack/redoStack）、localStorage 持久化 |
-| **搜索 + MCP** | JD 文本解析、Anthropic SDK（作为"外部模型服务"）、未来可扩展 MCP 工具 |
-| **上下文工程** | SSE 流式传输、Plan/Step 渐进上下文注入、RuntimeValue 动态计算 |
-| **编排 + Hooks** | AgentRunner Plan/Step 执行、SSE 事件生命周期、Turbo 构建编排 |
+| Harness 组件 | resumate 中的实现 | 对应章节 |
+|-------------|-----------------|---------|
+| **执行循环** | AgentRunner Plan/Step 模型、AsyncGenerator 事件驱动 | Ch2 |
+| **LLM 抽象层** | LLMProvider 接口、AnthropicProvider、OpenAICompatProvider | Ch3 |
+| **工具系统** | ToolRegistry 名称→函数映射、classifyIntent、validateResume | Ch4 |
+| **上下文工程** | RuntimeValue 动态注入、对话摘要、Prompt Caching | Ch7 |
+| **编排 + Hooks** | condition/onFail 条件分支、HookManager 横切关注点 | Ch9 |
+| **安全与评估** | PII 过滤、Prompt 注入防御、三层质量评分 | Ch10-11 |
 
-后续章节会逐一展开。你会发现：**resumate 的 agent-harness 包就是一个微型 Harness**，几百行代码覆盖了全部核心概念。
+在接下来的章节中，我们会逐一展开每个组件的实现细节。你会发现：**resumate 的 agent-harness 包本身就是一个微型 Harness 实现**——它只有几百行代码，但完整覆盖了 Harness 的全部核心概念。
+
+---
 
 ## 1.3 动手实践：从零体验 resumate
 
@@ -259,7 +301,7 @@ event: plan:done
 data: {"resume":{...}} // 最终简历数据
 ```
 
-5 个步骤，职责明确，右栏简历预览随事件流实时更新。
+这就是一个完整的 Agent 执行流程！5 个步骤，每个步骤都有明确的职责和产出。右栏的简历预览会随着事件流实时更新。
 
 4. **进入编辑器**：点击顶部"编辑器"链接，进入三栏布局编辑器——左侧模块面板、中间拖拽画布、右侧样式面板。试试切换模板（经典黑/优雅衬线/蓝色简约）、调整主题色。
 
@@ -299,9 +341,11 @@ data: {"resume":{...}} // 最终简历数据
 └─────────────┘
 ```
 
-在 resumate 中，这个公式具体表现为：
+这就是 Agent = Model + Harness 在 resumate 中的完整体现：
 - **Model** = Anthropic Claude（通过 `AnthropicProvider`）
 - **Harness** = AgentRunner + ToolRegistry + Zustand Stores + SSE + React UI + localStorage
+
+---
 
 ## 1.4 代码解析：30 行理解 Agent = Model + Harness
 
@@ -363,7 +407,7 @@ console.log(result);
    - 加 `async *stream()` → 流式响应
    - 加 `history: Message[]` → 多轮对话
 
-全书的方法很简单：**每一章在这个最简 Agent 上加一个 Harness 组件**，直到它变成可用的 resumate。
+全书的方法很简单：**每一章，我们都在这个最简 Agent 的基础上添加一个新的 Harness 组件**，直到它变成一个完整的、生产可用的 resumate。
 
 ### resumate 的真实 AgentRunner
 
@@ -421,6 +465,8 @@ export class AgentRunner {
 
 这三个设计，将在第 2 章（执行循环）中深入讲解。
 
+---
+
 ## 1.5 复盘与延伸
 
 ### 本章要点回顾
@@ -429,7 +475,7 @@ export class AgentRunner {
 
 2. **Agent = Model + Harness**。模型提供智能，Harness 提供工程基础设施。
 
-3. **Harness 六大组件**：文件系统、Bash+沙箱、记忆系统、搜索+MCP、上下文工程、编排+Hooks。
+3. **Harness 核心组件**：执行循环、LLM 抽象层、工具系统、上下文工程、编排 + Hooks、安全与评估。此外还有文件系统、Bash+沙箱、记忆系统、搜索+MCP 等组件，将在续作中深入。
 
 4. **resumate 的 agent-harness 包**就是一个微型但完整的 Harness 实现——几百行 TypeScript，覆盖了全部核心概念。
 
@@ -437,10 +483,10 @@ export class AgentRunner {
 
 | 误区 | 真相 |
 |------|------|
-| "Harness 就是 LangChain/CrewAI" | 不对。Harness 是**概念体系**，LangChain 是**具体实现**。理解 Harness 之后，用什么框架是次要选择 |
-| "我需要一个很复杂的框架才能做 Agent" | 不对。30 行代码就能写出一个最简 Agent，resumate 的 agent-harness 也只有几百行 |
+| "Harness 就是 LangChain/CrewAI" | 并非如此。Harness 是**概念体系**，LangChain 是**具体实现**。理解 Harness 之后，用什么框架是次要选择 |
+| "我需要一个很复杂的框架才能做 Agent" | 实际上，30 行代码就能写出一个最简 Agent，resumate 的 agent-harness 也只有几百行 |
 | "模型越强，Agent 越好" | 部分正确。模型决定能力的**下限**，但 Harness 决定能力的**上限** |
-| "Harness 是后端概念" | 不对。resumate 的 localStorage 持久化、浏览器 print PDF、React 状态管理都是 Harness 的组成部分 |
+| "Harness 是后端概念" | 恰恰相反。resumate 的 localStorage 持久化、浏览器 print PDF、React 状态管理都是 Harness 的组成部分 |
 
 ### 进阶话题
 
@@ -450,21 +496,21 @@ export class AgentRunner {
 - **LLM 抽象层的设计** → 直接跳到第 3 章
 - **工具系统的实现** → 直接跳到第 4 章
 
-### 练习
-
-1. **（★☆☆）** 用你熟悉的语言（Python/TypeScript/Go）写一个最简 Agent：输入一句话，调用任意 LLM API，输出回答。对比你的实现和本章的 `SimpleAgent`。
-
-2. **（★★☆）** 在 `SimpleAgent` 的基础上添加 `history: Message[]`，使其支持多轮对话。用户第二轮输入时，Agent 能"记得"第一轮说了什么。
-
-3. **（★★★）** 研究 resumate 源码中 `packages/agent-harness/src/runner.ts` 的完整代码。找出 `AgentRunner.execute()` 方法中的四种 Step 类型，理解它们各处理什么场景。
+---
 
 ## 本章小结
 
-这一章介绍了 Harness 的全景：
+这一章，我们站在 Harness Engineering 的大门前，看到了全景：
 
 - **裸模型做不到什么**（四大硬伤）
-- **Harness 是什么**（六大组件 + 三层架构）
+- **Harness 是什么**（核心组件 + 三层架构）
 - **resumate 如何实现 Harness**（agent-harness 包 + web 应用）
 - **30 行最简 Agent** 如何体现 Agent = Model + Harness
 
 下一章，我们将进入 Harness 的第一个核心组件——**执行循环**，理解 Agent 如何"观察-思考-行动"。
+
+### 自检问题
+
+1. 裸模型的四大硬伤是什么？各对应 Harness 的哪个组件来解决？
+2. Agent = Model + Harness 这个公式中，Model 和 Harness 各自的职责边界在哪？
+3. resumate 的项目结构中，`agent-harness/` 包和 `web/` 包分别承担 Harness 三层架构中的哪一层？

@@ -4,26 +4,13 @@
 > **难度：** ★★☆☆☆  
 > **预计阅读时间：** 50 分钟  
 > **本章代码量：** 从 ~30 行扩展到 ~110 行  
+> **学习目标：** 读完本章后，你将能够：
+> 1. 用 Plan/Step 模型将复杂任务分解为有序步骤
+> 2. 区分四种 Step 类型及其适用场景
+> 3. 使用 AsyncGenerator 实现事件驱动的执行循环
+> 4. 理解 RuntimeValue 动态参数的工作原理  
 
-## 开篇故事
-
-第一章我们用 30 行代码写了一个最简 Agent。它有一个致命缺陷：**只能做一件事**。
-
-用户说"帮我写简历"→ Agent 调一次 LLM → 输出文本 → 结束。
-
-但真实世界的简历生成不是这样的。你需要：
-
-1. **理解用户意图**：他是在"创建新简历"还是在"优化已有简历"？他粘贴了 JD 吗？
-2. **收集缺失信息**：用户只说了"我是前端工程师"，但工作经历、教育背景、技能呢？
-3. **生成结构化数据**：不是一段自由文本，而是包含 Header、WorkExperience、Skills 的 JSON
-4. **验证结果**：简历里有名字吗？模块完整吗？
-5. **呈现给用户**：渲染成可视化预览
-
-这是五个步骤，有顺序依赖，有错误处理，每步都可能需要重试。
-
-就像餐厅：点单 → 做菜 → 上菜 → 反馈 → 调整。这不是一次性调用，是一个循环。
-
-这一章来构建它。
+---
 
 ## 2.1 为什么需要执行循环？
 
@@ -92,6 +79,8 @@ class MultiStepAgent {
 
 这就是 resumate 中 AgentRunner 的设计原型。
 
+---
+
 ## 2.2 什么是执行循环？
 
 ### Plan/Step 模型
@@ -122,7 +111,7 @@ interface PlanStep {
 }
 ```
 
-这里有四个设计决策需要展开。
+这里有四个关键设计决策，值得逐一展开。
 
 #### 决策 1：四种 Step 类型
 
@@ -207,7 +196,9 @@ plan:start (planId: "resume-generation")
       └── plan:done  (resume: Resume)
 ```
 
-把执行过程看作一条生产线，事件就是指示灯——告诉你当前在哪步、有没有出错。
+如果把整个执行看作一条生产线，每个事件就是生产线上的一盏指示灯——告诉你当前物料在哪、加工到哪一步、有没有异常。
+
+---
 
 ## 2.3 动手实践：为最简 Agent 添加执行循环
 
@@ -252,15 +243,16 @@ const resumeGenerationPlan: Plan = {
 ### Step 2：实现事件类型
 
 ```typescript
-// HarnessEvent: Agent 运行时的所有事件
+// HarnessEvent: Agent 运行时的所有事件（8 种）
 type HarnessEvent =
   | { type: "plan:start";  planId: string }
   | { type: "step:start";  stepId: string; description: string }
   | { type: "step:chunk";  stepId: string; text: string }
   | { type: "step:tool_call"; stepId: string; tool: string; args: unknown }
   | { type: "step:done";   stepId: string; result: unknown }
-  | { type: "plan:done";   result: unknown }
-  | { type: "plan:error";  stepId: string; error: string };
+  | { type: "plan:done";   resume: unknown }
+  | { type: "plan:error";  stepId: string; error: string }
+  | { type: "reasoning:chunk"; stepId: string; text: string };  // 思考过程（Ch6 详述）
 ```
 
 ### Step 3：实现 AgentRunner
@@ -268,115 +260,49 @@ type HarnessEvent =
 ```typescript
 class AgentRunner {
   constructor(
-    private provider: LLMProvider,      // 模型
-    private tools: Map<string, Function> // 工具
+    private provider: LLMProvider,
+    private tools: Map<string, Function>
   ) {}
 
   async *execute(plan: Plan): AsyncGenerator<HarnessEvent> {
     yield { type: "plan:start", planId: plan.id };
-
     const stepResults: Record<string, unknown> = {};
 
     for (const step of plan.steps) {
-      // 1. 检查依赖：需要的步骤是否都已执行？
+      // ① 依赖检查：前置步骤是否都已完成？
       const missing = step.dependsOn?.find(dep => !(dep in stepResults));
       if (missing) {
-        yield {
-          type: "plan:error",
-          stepId: step.id,
-          error: `依赖步骤 "${missing}" 未完成`
-        };
-        return; // 中止执行
+        yield { type: "plan:error", stepId: step.id,
+                error: `依赖步骤 "${missing}" 未完成` };
+        return;
       }
 
-      // 2. 播报：这个步骤开始了
-      yield {
-        type: "step:start",
-        stepId: step.id,
-        description: step.description
-      };
+      // ② 播报：步骤开始
+      yield { type: "step:start", stepId: step.id,
+              description: step.description };
 
       try {
-        // 3. 执行步骤（按类型分发）
-        let result: unknown;
+        // ③ 按类型执行（核心逻辑，细节见下方讨论）
+        let result = await this.executeStep(step, stepResults);
 
-        switch (step.type) {
-          case "tool": {
-            const toolFn = this.tools.get(step.id);
-            if (!toolFn) throw new Error(`工具 "${step.id}" 未注册`);
-            const args = { context: stepResults }; // 前序步骤的结果
-            yield { type: "step:tool_call", stepId: step.id,
-                    tool: step.id, args };
-            result = await toolFn(args);
-            break;
-          }
-          case "chat": {
-            let fullText = "";
-            const messages = [
-              { role: "system" as const, content: "你是专业求职顾问" },
-              { role: "user" as const,
-                content: `基于以下信息继续对话：${JSON.stringify(stepResults)}` }
-            ];
-            // 流式接收 LLM 输出
-            await this.provider.streamChat({ messages }, (chunk) => {
-              if (chunk.type === "text") {
-                fullText += chunk.content;
-                yield { type: "step:chunk", stepId: step.id,
-                        text: chunk.content };
-              }
-            });
-            result = { text: fullText };
-            break;
-          }
-          case "structured": {
-            const messages = [
-              { role: "system" as const,
-                content: "根据用户信息生成结构化简历 JSON" },
-              { role: "user" as const,
-                content: JSON.stringify(stepResults) }
-            ];
-            result = await this.provider.generateStructured({
-              messages,
-              schema: resumeSchema
-            });
-            break;
-          }
-          case "compose": {
-            // compose: 组装最终结果
-            const generated = stepResults["generate"];
-
-            // 如果 validate 步骤发现严重问题，拒绝输出
-            const validation = stepResults["validate"] as
-              { valid: boolean; issues: string[] } | undefined;
-            if (validation && !validation.valid) {
-              throw new Error(`简历验证未通过：${validation.issues.join("、")}`);
-            }
-
-            result = generated;
-            break;
-          }
-        }
-
-        // 4. 保存结果，播报完成
+        // ④ 保存结果，播报完成
         stepResults[step.id] = result;
         yield { type: "step:done", stepId: step.id, result };
-
       } catch (err) {
-        // 5. 错误处理：播报错误并中止
-        yield {
-          type: "plan:error",
-          stepId: step.id,
-          error: err instanceof Error ? err.message : String(err)
-        };
+        // ⑤ 错误处理：快速失败
+        yield { type: "plan:error", stepId: step.id,
+                error: err instanceof Error ? err.message : String(err) };
         return;
       }
     }
 
-    // 6. 计划完成
-    yield { type: "plan:done", result: stepResults["present"] };
+    // ⑥ 计划完成
+    yield { type: "plan:done", resume: stepResults["present"] };
   }
 }
 ```
+
+注意这个骨架只有 ~40 行，但已经包含了执行循环的全部核心逻辑：**依赖检查 → 事件播报 → 按类型执行 → 错误处理**。`executeStep` 方法内部根据 `step.type` 分发到不同的处理分支（tool/chat/structured/compose），每种分支的实现细节在前面的章节中已经分别涉及。完整的 ~110 行实现可以在 [resumate 源码](https://github.com/SSSonnettt/resumate) 的 `packages/agent-harness/src/runner.ts` 中找到。
 
 ### Step 4：对比第 1 章的 SimpleAgent
 
@@ -388,6 +314,8 @@ class AgentRunner {
 | 错误处理 | try-catch 包裹整体 | 每步独立错误，精确知道哪步失败 |
 | 中间结果 | 不可访问 | `stepResults` 结构化存储，后续步骤可用 |
 | 依赖管理 | 无 | `dependsOn` 声明式依赖 |
+
+---
 
 ## 2.4 代码解析：AgentRunner 的三层循环
 
@@ -426,15 +354,17 @@ for await (const event of runner.execute(plan, context)) {
 ### 内层循环（LLM streaming）：逐 Token 产出
 
 ```typescript
+// 回调收集文本，完成后统一产出事件
+let fullText = "";
 await this.provider.streamChat({ messages }, (chunk) => {
   if (chunk.type === "text") {
     fullText += chunk.content;
-    yield { type: "step:chunk", stepId: step.id, text: chunk.content };
   }
 });
+yield { type: "step:chunk", stepId: step.id, text: fullText };
 ```
 
-对于 `chat` 类型的步骤，LLM 的流式输出被逐 token 转为 `step:chunk` 事件。用户看到的是文本"逐字打出来"的效果——这在 UX 上至关重要：让用户感知到 Agent 在工作。
+对于 `chat` 类型的步骤，`streamChat` 使用回调模式逐 token 接收 LLM 输出。注意：回调函数内不能使用 `yield`（回调不是 generator），所以 AgentRunner 在回调中收集文本，流式结束后再通过外层 generator 产出 `step:chunk` 事件。实际的 resumate 中，Provider 层（Ch3）使用回调，AgentRunner 层使用 AsyncGenerator——两层各选适合的模式。
 
 ### RuntimeValue：动态参数解析
 
@@ -449,7 +379,7 @@ function resolveRuntimeValue<T>(
 }
 ```
 
-这 5 行代码解决了一个实际问题：让 Step 的参数可以：
+这 5 行代码是 AgentRunner 中最重要的设计之一。它让 Step 的参数可以：
 - 是静态值（适用于不变的 system prompt）
 - 是动态函数（适用于依赖前序步骤结果的 prompt）
 
@@ -469,7 +399,26 @@ function resolveRuntimeValue<T>(
 }
 ```
 
-## 2.5 复盘与延伸
+---
+
+## 2.5 业界执行循环模式对比
+
+resumate 的 Plan/Step 模型只是执行循环的一种实现。了解业界主流模式有助于你在新项目中做出更好的选型：
+
+| 模式 | 核心思想 | 代表 | 适用场景 |
+|------|---------|------|---------|
+| **ReAct**（Reasoning + Acting） | 模型交替"推理"和"行动"，每步动态决定下一步 | LangChain AgentExecutor | 开放式任务，步骤不确定 |
+| **Plan-and-Execute** | 先制定完整计划，再按序执行 | 本书的 AgentRunner | 步骤确定的 pipeline |
+| **Tree-of-Thought** | 探索多条推理路径，选择最优 | 研究场景 | 需要探索的推理问题 |
+| **Reflexion** | 执行 → 反思 → 修正，循环迭代 | Ch9 的自修正循环 | 质量敏感的任务 |
+
+resumate 选择 Plan-and-Execute 的原因是**可预测性**——简历生成的步骤是固定的，不需要模型动态探索。但 Plan-and-Execute 不排斥 ReAct：在 `collect` 步骤（开放式对话）中，模型实际上在做 ReAct 式的动态推理。
+
+关键洞察：**执行循环的模式不是二选一的，而是可以嵌套的**。外层用 Plan-and-Execute 保证整体流程可控，内层某些步骤用 ReAct 处理开放式子任务。这种"确定性骨架 + 概率性血肉"的混合模式，是 Harness 设计中最实用的策略之一。
+
+---
+
+## 2.6 复盘与延伸
 
 ### 本章要点回顾
 
@@ -485,9 +434,9 @@ function resolveRuntimeValue<T>(
 
 | 误区 | 真相 |
 |------|------|
-| "执行循环就是 while(true) 调 LLM" | 不对。循环的边界由 Plan 定义，不是无限循环。Plan 完成即退出 |
-| "步骤数越多越好" | 不对。每增加一个步骤，就增加了一轮 LLM 调用的延迟和 Token 成本。够用即可 |
-| "dependsOn 可以处理所有依赖" | 不对。dependsOn 只表达"A 必须在 B 之前完成"，不表达"B 的输出类型必须符合某 Schema"（那是 `compose` 步骤的职责） |
+| "执行循环就是 while(true) 调 LLM" | 循环的边界由 Plan 定义，不是无限循环。Plan 完成即退出 |
+| "步骤数越多越好" | 并非如此。每增加一个步骤，就增加了一轮 LLM 调用的延迟和 Token 成本。够用即可 |
+| "dependsOn 可以处理所有依赖" | dependsOn 只表达"A 必须在 B 之前完成"，不表达"B 的输出类型必须符合某 Schema"（那是 `compose` 步骤的职责） |
 
 ### Harness vs 流行框架
 
@@ -501,24 +450,18 @@ function resolveRuntimeValue<T>(
 | 灵活性 | 受限于框架设计 | 完全可控 |
 | 适用场景 | 生产级复杂 Agent 系统 | 理解 Agent 原理 + 中小型项目 |
 
-区别在于：**框架是具体实现，Harness 是概念体系。**
+本质区别：**框架是"实现"（Implementation），Harness 是"概念体系"（Conceptual Framework）。**
 
-LangChain 的 `AgentExecutor`、CrewAI 的 `Crew`、AutoGen 的 `ConversableAgent` 都是 Plan/Step 模型的变体。理解 Harness 之后，学任何框架只是换个 API。
+LangChain 的 `AgentExecutor`、CrewAI 的 `Crew`、AutoGen 的 `ConversableAgent`——它们都是 Plan/Step 模型在不同场景下的具体实现。理解 Harness 概念之后，学任何框架都只是"换个 API 调"而已。
 
-本书从零构建 AgentRunner，因为：**亲手造过，才能理解那些框架为什么那样设计。**
+本书选择从零构建 AgentRunner，不是因为"重复造轮子"，而是因为亲手造过之后，那些框架的设计决策就不再神秘了。
 
 ### 进阶话题
 
 - **条件分支**：当前 AgentRunner 是线性执行 + dependsOn 约束。resumate 的 `classify` 步骤通过结果影响后续步骤的 prompt，实现"软分支"。如果你需要"硬分支"（跳过某些步骤），可以在 Plan 中引入 `condition` 字段。
 - **重试机制**：当前错误处理是"出错即中止"。你可以在 `catch` 块中加入重试逻辑，对 transient error（如 API 限流）重试，对 logical error（如 Schema 不匹配）中止。
 
-### 练习
-
-1. **（★☆☆）** 基于第 1 章的 `SimpleAgent`，手动实现一个 3 步执行循环：`classify → generate → present`。不需要 AsyncGenerator，用同步方式即可。
-
-2. **（★★☆）** 研究 resumate 源码中 `packages/web/app/api/agent/run/route.ts`，理解 SSE 如何将 `AsyncGenerator<HarnessEvent>` 转成 HTTP 响应流。
-
-3. **（★★★）** 在 AgentRunner 中加入重试机制：如果 `structured` 步骤的 Zod parse 失败，自动重试一次（带着 parse error 信息重新调 LLM）。
+---
 
 ## 本章小结
 
@@ -529,3 +472,9 @@ LangChain 的 `AgentExecutor`、CrewAI 的 `Crew`、AutoGen 的 `ConversableAgen
 - **怎么做**：AgentRunner 的三层循环（Step 遍历 → 事件产出 → Token 流式）
 
 下一章，我们将深入 AgentRunner 依赖的核心抽象——**LLMProvider**，理解如何让 Agent 与不同模型对话而无需修改业务逻辑。
+
+### 自检问题
+
+1. Plan/Step 模型中的四种 Step 类型（tool/chat/structured/compose）各适用于什么场景？
+2. RuntimeValue 的类型签名 `type RuntimeValue<T> = T | ((runtime: StepRuntime) => T)` 解决了什么问题？为什么不用纯静态参数？
+3. 业界执行循环模式（ReAct / Plan-and-Execute / Reflexion）中，resumate 选择 Plan-and-Execute 的原因是什么？
