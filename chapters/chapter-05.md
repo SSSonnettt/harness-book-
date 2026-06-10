@@ -352,7 +352,7 @@ async function loadResume(raw: unknown): Promise<Resume> {
 - **双重保证**：LLM 格式约束（软）+ Zod parse（硬）
 - **类型安全**：从 LLM 输出到 TypeScript 类型的端到端类型链
 
-下一章：**SSE 流式响应**——Agent 如何实时反馈。
+下一章：SSE 流式响应——Agent 如何实时反馈。
 
 ### 自检问题
 

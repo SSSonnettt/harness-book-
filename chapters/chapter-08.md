@@ -207,7 +207,7 @@ for (const [name, prompt] of Object.entries(promptVariants)) {
 | starEnforced | 78 | 65 | 88 |
 | atsOptimized | 85 | 72 | 93 |
 
-效果一目了然：光是加上 STAR 法则要求就提升了 16 分。加上 ATS 优化又提升了 7 分。这就是**用数据迭代提示词**的方法论——不是凭感觉改，而是用指标说话。
+效果一目了然：光是加上 STAR 法则要求就提升了 16 分。加上 ATS 优化又提升了 7 分。用数据迭代提示词，不凭感觉改，用指标说话。
 
 ---
 
@@ -229,7 +229,7 @@ for (const [name, prompt] of Object.entries(promptVariants)) {
 - **三条法则**：示例 > 描述，约束 > 自由，角色决定语气
 - **Think Mode**：复杂推理开启，简单对话关闭
 
-下一章：**编排与 Hooks**——从单兵到团队。
+下一章：编排与 Hooks——从单兵到团队。
 
 ### 自检问题
 
